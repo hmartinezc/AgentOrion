@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src\AgentOrion.Core\AgentOrion.Core.csproj" />
+  <Project Path="src\AgentOrion.Infrastructure\AgentOrion.Infrastructure.csproj" />
+  <Project Path="src\AgentOrion.Api\AgentOrion.Api.csproj" />
+</Solution>

@@ -1,0 +1,21 @@
+version: '3.8'
+services:
+  agentorion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - AgentOrion__Copilot__Provider__ApiKey=${OPENAI_API_KEY}
+      - AgentOrion__Copilot__Model=${MODEL:-gpt-4.1}
+      - AgentOrion__Copilot__Provider__Type=${PROVIDER_TYPE:-openai}
+      - AgentOrion__Copilot__Provider__BaseUrl=${PROVIDER_BASEURL:-https://api.openai.com/v1}
+      - AgentOrion__DbPath=data/agentorion.db
+    volumes:
+      - agentorion-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  agentorion-data:

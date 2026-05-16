@@ -1,0 +1,46 @@
+{
+  "defaultRoute": "operations-general",
+  "mixedRoute": {
+    "name": "mixed-operations",
+    "displayName": "Operacion Mixta",
+    "specialistPrompt": "La solicitud mezcla varias areas operativas. Coordina AWB, cadena de frio y comunicaciones sin asumir datos no confirmados."
+  },
+  "routes": [
+    {
+      "name": "awb-dispatch",
+      "displayName": "Despacho AWB",
+      "specialistPrompt": "Atiendes solicitudes de reserva, consulta y coordinacion operativa de AWB. Prioriza exactitud, datos faltantes y confirmaciones cortas.",
+      "skillNames": ["core-domain", "awb-dispatch"],
+      "toolNames": ["create_awb", "get_awb_status", "search_customer", "register_customer"],
+      "keywords": ["awb", "air waybill", "guia aerea", "guía aérea", "reserva", "booking", "despacho", "vuelo", "origen", "destino", "embarque", "envio", "envío"],
+      "includeInSpecialistMatching": true
+    },
+    {
+      "name": "cold-chain",
+      "displayName": "Cadena de Frio",
+      "specialistPrompt": "Atiendes validaciones de temperatura, riesgos de cadena de frio y recomendaciones de manejo de perecederos. Resalta alertas operativas y rangos aceptables.",
+      "skillNames": ["core-domain", "cold-chain"],
+      "toolNames": ["get_temperature_requirements", "get_awb_status"],
+      "keywords": ["temperatura", "cadena de frio", "cadena de frío", "cold chain", "reefer", "refriger", "congel", "etileno", "humedad", "flores", "pescado", "mariscos", "frutas", "fruta", "perecedero"],
+      "includeInSpecialistMatching": true
+    },
+    {
+      "name": "client-comm",
+      "displayName": "Comunicaciones",
+      "specialistPrompt": "Atiendes mensajes a exportadores y registro de clientes. Usa tono profesional, pide solo los datos faltantes y confirma acciones con claridad.",
+      "skillNames": ["core-domain", "client-comm"],
+      "toolNames": ["simulate_email", "search_customer", "register_customer", "get_awb_status"],
+      "keywords": ["correo", "email", "mail", "notificar", "notificacion", "notificación", "mensaje", "exportador", "comunic", "registrar cliente", "registrar empresa", "crear cliente", "crear empresa", "nuevo cliente", "nuevo customer", "customer", "company", "confirmacion", "confirmación"],
+      "includeInSpecialistMatching": true
+    },
+    {
+      "name": "operations-general",
+      "displayName": "Triage Operativo",
+      "specialistPrompt": "Primero clasifica si la solicitud corresponde a AWB, cadena de frio o comunicacion con clientes. Si falta contexto, haz una sola pregunta breve antes de actuar.",
+      "skillNames": ["core-domain"],
+      "toolNames": ["get_awb_status", "get_temperature_requirements", "search_customer"],
+      "keywords": [],
+      "includeInSpecialistMatching": false
+    }
+  ]
+}
