@@ -12,7 +12,7 @@ public class Shipment
     public string? OriginAirport { get; set; }
     public string? DestinationAirport { get; set; }
     public DateTime? FlightDate { get; set; }
-    public string Status { get; set; } = "solicitado"; // solicitado, confirmado, en_transito, entregado, rechazado
+    public string Status { get; set; } = ShipmentStatuses.Requested;
     public string? PhytosanitaryCert { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

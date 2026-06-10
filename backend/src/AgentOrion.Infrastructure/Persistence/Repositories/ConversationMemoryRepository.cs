@@ -8,13 +8,13 @@ namespace AgentOrion.Infrastructure.Persistence.Repositories;
 public class ConversationMemoryRepository : IConversationMemoryRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private readonly TursoContext _context;
+    private readonly IAgentOrionDbConnectionFactory _connectionFactory;
 
-    public ConversationMemoryRepository(TursoContext context) => _context = context;
+    public ConversationMemoryRepository(IAgentOrionDbConnectionFactory connectionFactory) => _connectionFactory = connectionFactory;
 
     public async Task<ConversationMemoryState?> GetAsync(string sessionId)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
             SELECT SessionId, LastRouteName, CurrentIntent, CustomerJson, ShipmentJson, UpdatedAt
@@ -45,7 +45,7 @@ public class ConversationMemoryRepository : IConversationMemoryRepository
 
     public async Task UpsertAsync(ConversationMemoryState state)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
             INSERT INTO ConversationMemory (SessionId, LastRouteName, CurrentIntent, CustomerJson, ShipmentJson, UpdatedAt)
@@ -68,7 +68,7 @@ public class ConversationMemoryRepository : IConversationMemoryRepository
 
     public async Task DeleteAsync(string sessionId)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "DELETE FROM ConversationMemory WHERE SessionId = @sessionId;";
         cmd.Parameters.AddWithValue("@sessionId", sessionId);

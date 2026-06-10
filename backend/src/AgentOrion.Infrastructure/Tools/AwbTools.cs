@@ -1,19 +1,17 @@
 using Microsoft.Extensions.AI;
 using System.ComponentModel;
 using System.Reflection;
-using System.Text.Json;
-using AgentOrion.Core.Models;
-using AgentOrion.Core.Persistence;
+using AgentOrion.Core.Operations;
 
 namespace AgentOrion.Infrastructure.Tools;
 
 public class AwbToolService
 {
-    private readonly IShipmentRepository _shipments;
+    private readonly IAwbReservationGateway _reservations;
 
-    public AwbToolService(IShipmentRepository shipments)
+    public AwbToolService(IAwbReservationGateway reservations)
     {
-        _shipments = shipments;
+        _reservations = reservations;
     }
 
     [Description("Crea un nuevo despacho AWB para carga perecedera. Devuelve el número de AWB generado.")]
@@ -26,44 +24,30 @@ public class AwbToolService
         [Description("ID del cliente registrado (opcional)")] int? customerId = null,
         [Description("Fecha de embarque o vuelo en formato YYYY-MM-DD (opcional)")] string? flightDate = null)
     {
-        double tempReq = productType.ToLowerInvariant() switch
+        var result = await _reservations.CreateReservationAsync(new AwbReservationCreateRequest(
+            productType,
+            productName,
+            quantityKg,
+            originAirport,
+            destinationAirport,
+            customerId,
+            flightDate));
+
+        if (!result.Success || result.Reservation is null)
         {
-            "flores" => 2.0,
-            "pescado" => -18.0,
-            "mariscos" => -18.0,
-            "frutas" => 8.0,
-            _ => 2.0
-        };
+            return Failure(result);
+        }
 
-        var awbNumber = $"AWB-{productType.ToUpperInvariant()[..3]}-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}";
-
-        var shipment = new Shipment
-        {
-            AwbNumber = awbNumber,
-            CustomerId = customerId,
-            ProductType = productType,
-            ProductName = productName,
-            QuantityKg = quantityKg,
-            TemperatureRequiredC = tempReq,
-            OriginAirport = originAirport.ToUpperInvariant(),
-            DestinationAirport = destinationAirport.ToUpperInvariant(),
-            FlightDate = TryParseFlightDate(flightDate),
-            Status = "solicitado",
-            PhytosanitaryCert = $"PHYTO-{Guid.NewGuid().ToString()[..8].ToUpperInvariant()}"
-        };
-
-        var id = await _shipments.CreateAsync(shipment);
-        await _shipments.AddEventAsync(id, "awb_created", JsonSerializer.Serialize(new { tempRequired = tempReq, awb = awbNumber }));
-
+        var reservation = result.Reservation;
         return new
         {
-            awbNumber,
-            shipmentId = id,
-            status = shipment.Status,
-            flightDate = shipment.FlightDate?.ToString("yyyy-MM-dd"),
-            temperatureRequiredC = tempReq,
-            phytosanitaryCert = shipment.PhytosanitaryCert,
-            message = $"AWB {awbNumber} creado exitosamente para {quantityKg}kg de {productName}. Temperatura requerida: {tempReq}°C."
+            awbNumber = reservation.AwbNumber,
+            shipmentId = reservation.Id,
+            status = reservation.Status,
+            flightDate = reservation.FlightDate?.ToString("yyyy-MM-dd"),
+            temperatureRequiredC = reservation.TemperatureRequiredC,
+            phytosanitaryCert = reservation.PhytosanitaryCert,
+            message = $"AWB {reservation.AwbNumber} creado exitosamente para {reservation.QuantityKg:0.##}kg de {reservation.ProductName}. Temperatura requerida: {reservation.TemperatureRequiredC:0.#} C."
         };
     }
 
@@ -71,23 +55,68 @@ public class AwbToolService
     public async Task<object> GetAwbStatusAsync(
         [Description("Número de AWB a consultar, ej: AWB-FLO-20260515-4821")] string awbNumber)
     {
-        var s = await _shipments.GetByAwbAsync(awbNumber);
-        if (s == null)
-            return new { found = false, message = "No se encontró el AWB especificado." };
+        var result = await _reservations.GetReservationAsync(awbNumber);
+        if (!result.Success || result.Reservation is null)
+        {
+            return new { found = false, errorCode = result.ErrorCode, message = result.ErrorMessage ?? "No se encontro el AWB especificado." };
+        }
 
+        var reservation = result.Reservation;
         return new
         {
             found = true,
-            s.AwbNumber,
-            s.ProductType,
-            s.ProductName,
-            s.QuantityKg,
-            s.TemperatureRequiredC,
-            origin = s.OriginAirport,
-            destination = s.DestinationAirport,
-            s.Status,
-            s.PhytosanitaryCert,
-            s.CreatedAt
+            reservation.AwbNumber,
+            reservation.ProductType,
+            reservation.ProductName,
+            reservation.QuantityKg,
+            reservation.TemperatureRequiredC,
+            origin = reservation.OriginAirport,
+            destination = reservation.DestinationAirport,
+            reservation.Status,
+            reservation.PhytosanitaryCert,
+            reservation.CreatedAt
+        };
+    }
+
+    [Description("Actualiza el estado operacional de un AWB existente.")]
+    public async Task<object> UpdateAwbStatusAsync(
+        [Description("Número de AWB a actualizar, ej: AWB-FLO-20260515-4821")] string awbNumber,
+        [Description("Nuevo estado: solicitado, confirmado, en_transito, entregado, rechazado, cancelado")] string status)
+    {
+        var result = await _reservations.UpdateReservationStatusAsync(new AwbReservationStatusUpdateRequest(awbNumber, status));
+        if (!result.Success || result.Reservation is null)
+        {
+            return Failure(result);
+        }
+
+        return new
+        {
+            success = true,
+            found = true,
+            result.Reservation.AwbNumber,
+            result.Reservation.Status,
+            message = $"AWB {result.Reservation.AwbNumber} actualizado a estado {result.Reservation.Status}."
+        };
+    }
+
+    [Description("Cancela una reserva AWB existente cuando la operacion aun lo permite.")]
+    public async Task<object> CancelAwbAsync(
+        [Description("Número de AWB a cancelar, ej: AWB-FLO-20260515-4821")] string awbNumber,
+        [Description("Motivo de cancelacion (opcional)")] string? reason = null)
+    {
+        var result = await _reservations.CancelReservationAsync(new AwbReservationCancelRequest(awbNumber, reason));
+        if (!result.Success || result.Reservation is null)
+        {
+            return Failure(result);
+        }
+
+        return new
+        {
+            success = true,
+            found = true,
+            result.Reservation.AwbNumber,
+            result.Reservation.Status,
+            message = $"AWB {result.Reservation.AwbNumber} cancelado."
         };
     }
 
@@ -107,33 +136,43 @@ public class AwbToolService
         return new { productType, temperatureC = temp, recommendations = notes };
     }
 
-    private static DateTime? TryParseFlightDate(string? flightDate)
+    private static object Failure(AwbReservationOperationResult result) => new
     {
-        if (string.IsNullOrWhiteSpace(flightDate))
-        {
-            return null;
-        }
-
-        return DateTime.TryParse(flightDate, out var parsed)
-            ? parsed
-            : null;
-    }
+        success = false,
+        found = !string.Equals(result.ErrorCode, "not_found", StringComparison.OrdinalIgnoreCase),
+        errorCode = result.ErrorCode,
+        message = result.ErrorMessage ?? "No se pudo completar la operacion AWB."
+    };
 }
 
 public static class AwbTools
 {
-    public static AIFunction CreateCreateAwbTool(IShipmentRepository shipments)
+    public static AIFunction CreateCreateAwbTool(IAwbReservationGateway reservations)
     {
-        var service = new AwbToolService(shipments);
+        var service = new AwbToolService(reservations);
         var method = typeof(AwbToolService).GetMethod(nameof(AwbToolService.CreateAwbAsync))!;
         return AIFunctionFactory.Create(method, service, "create_awb", "Crea un nuevo despacho AWB para carga perecedera.");
     }
 
-    public static AIFunction CreateGetAwbStatusTool(IShipmentRepository shipments)
+    public static AIFunction CreateGetAwbStatusTool(IAwbReservationGateway reservations)
     {
-        var service = new AwbToolService(shipments);
+        var service = new AwbToolService(reservations);
         var method = typeof(AwbToolService).GetMethod(nameof(AwbToolService.GetAwbStatusAsync))!;
         return AIFunctionFactory.Create(method, service, "get_awb_status", "Consulta el estado de un AWB por número.");
+    }
+
+    public static AIFunction CreateUpdateAwbStatusTool(IAwbReservationGateway reservations)
+    {
+        var service = new AwbToolService(reservations);
+        var method = typeof(AwbToolService).GetMethod(nameof(AwbToolService.UpdateAwbStatusAsync))!;
+        return AIFunctionFactory.Create(method, service, "update_awb_status", "Actualiza el estado operacional de un AWB.");
+    }
+
+    public static AIFunction CreateCancelAwbTool(IAwbReservationGateway reservations)
+    {
+        var service = new AwbToolService(reservations);
+        var method = typeof(AwbToolService).GetMethod(nameof(AwbToolService.CancelAwbAsync))!;
+        return AIFunctionFactory.Create(method, service, "cancel_awb", "Cancela una reserva AWB existente.");
     }
 
     public static AIFunction CreateGetTemperatureRequirementsTool()

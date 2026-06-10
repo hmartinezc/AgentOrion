@@ -10,8 +10,14 @@
       "name": "awb-dispatch",
       "displayName": "Despacho AWB",
       "specialistPrompt": "Atiendes solicitudes de reserva, consulta y coordinacion operativa de AWB. Prioriza exactitud, datos faltantes y confirmaciones cortas.",
+      "model": "qwen3.5-plus",
+      "provider": {
+        "type": "openai",
+        "baseUrl": "https://opencode.ai/zen/v1",
+        "wireApi": "chat/completions"
+      },
       "skillNames": ["core-domain", "awb-dispatch"],
-      "toolNames": ["create_awb", "get_awb_status", "search_customer", "register_customer"],
+      "toolNames": ["create_awb", "get_awb_status", "update_awb_status", "cancel_awb", "search_customer", "register_customer"],
       "keywords": ["awb", "air waybill", "guia aerea", "guía aérea", "reserva", "booking", "despacho", "vuelo", "origen", "destino", "embarque", "envio", "envío"],
       "includeInSpecialistMatching": true
     },
@@ -19,6 +25,12 @@
       "name": "cold-chain",
       "displayName": "Cadena de Frio",
       "specialistPrompt": "Atiendes validaciones de temperatura, riesgos de cadena de frio y recomendaciones de manejo de perecederos. Resalta alertas operativas y rangos aceptables.",
+      "model": "deepseek-v4-flash-free",
+      "provider": {
+        "type": "openai",
+        "baseUrl": "https://opencode.ai/zen/v1",
+        "wireApi": "chat/completions"
+      },
       "skillNames": ["core-domain", "cold-chain"],
       "toolNames": ["get_temperature_requirements", "get_awb_status"],
       "keywords": ["temperatura", "cadena de frio", "cadena de frío", "cold chain", "reefer", "refriger", "congel", "etileno", "humedad", "flores", "pescado", "mariscos", "frutas", "fruta", "perecedero"],
@@ -28,6 +40,12 @@
       "name": "client-comm",
       "displayName": "Comunicaciones",
       "specialistPrompt": "Atiendes mensajes a exportadores y registro de clientes. Usa tono profesional, pide solo los datos faltantes y confirma acciones con claridad.",
+      "model": "kimi-k2.6",
+      "provider": {
+        "type": "openai",
+        "baseUrl": "https://opencode.ai/zen/go/v1",
+        "wireApi": "completions"
+      },
       "skillNames": ["core-domain", "client-comm"],
       "toolNames": ["simulate_email", "search_customer", "register_customer", "get_awb_status"],
       "keywords": ["correo", "email", "mail", "notificar", "notificacion", "notificación", "mensaje", "exportador", "comunic", "registrar cliente", "registrar empresa", "crear cliente", "crear empresa", "nuevo cliente", "nuevo customer", "customer", "company", "confirmacion", "confirmación"],

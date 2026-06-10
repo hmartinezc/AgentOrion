@@ -22,11 +22,42 @@ interface ChatTrace {
   chatMode?: string;
   routeName?: string;
   routeDisplayName?: string;
+  routing?: ChatRoutingTrace | null;
   tools: string[];
+  toolExecutions?: ChatToolExecutionTrace[];
   skills: string[];
   subagents: string[];
   error?: string;
   usage?: ChatUsageTrace | null;
+}
+
+interface ChatRoutingTrace {
+  selectedRouteName: string;
+  selectedRouteDisplayName: string;
+  confidence: number;
+  routingMode?: string;
+  requiresMiniRouterReview?: boolean;
+  reason: string;
+  fallbackRouteName?: string | null;
+  candidates: ChatRoutingCandidateTrace[];
+}
+
+interface ChatRoutingCandidateTrace {
+  routeName: string;
+  displayName: string;
+  score: number;
+  matchedSignals: string[];
+  selected: boolean;
+}
+
+interface ChatToolExecutionTrace {
+  toolCallId: string;
+  toolName?: string | null;
+  requiresConfirmation: boolean;
+  success?: boolean | null;
+  error?: string | null;
+  resultPreview?: string | null;
+  durationMs: number;
 }
 
 interface ChatUsageTrace {
@@ -412,12 +443,48 @@ function TraceCard({ trace }: { trace: ChatTrace }) {
         <div><span>Modelo</span><strong>{trace.model || 'No disponible'}</strong></div>
         <div><span>Modo</span><strong>{formatModeLabel(trace.chatMode)}</strong></div>
         <div><span>Ruta</span><strong>{trace.routeDisplayName || 'No disponible'}</strong></div>
+        <div><span>Confianza routing</span><strong>{formatRoutingConfidence(trace.routing)}</strong></div>
         <div><span>Duración</span><strong>{durationSeconds}</strong></div>
         <div><span>Herramientas</span><strong>{formatTraceList(trace.tools, formatToolLabel)}</strong></div>
+        <div><span>Ejecuciones</span><strong>{formatToolExecutionSummary(trace.toolExecutions)}</strong></div>
         <div><span>Skills</span><strong>{formatTraceList(trace.skills)}</strong></div>
         <div><span>Subagentes</span><strong>{formatTraceList(trace.subagents, formatAgentLabel)}</strong></div>
         <div><span>Tokens</span><strong>{formatTokenSummary(trace.usage)}</strong></div>
       </div>
+      {trace.routing && (
+        <div className="trace-routing">
+          <div className="trace-routing-heading">
+            <span>Explicación de routing</span>
+            <strong>{formatRoutingConfidence(trace.routing)}</strong>
+          </div>
+          <p>{trace.routing.reason || 'Sin explicación registrada.'}</p>
+          {(trace.routing.routingMode || trace.routing.requiresMiniRouterReview) && (
+            <div className="trace-routing-meta">
+              {trace.routing.routingMode && <span>{trace.routing.routingMode}</span>}
+              {trace.routing.requiresMiniRouterReview && <span>Revisión sugerida</span>}
+            </div>
+          )}
+          <div className="trace-candidates">
+            {trace.routing.candidates.slice(0, 3).map(candidate => (
+              <span key={candidate.routeName} className={candidate.selected ? 'selected' : ''}>
+                {candidate.displayName || candidate.routeName}: {candidate.score}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {trace.toolExecutions && trace.toolExecutions.length > 0 && (
+        <div className="trace-tools">
+          {trace.toolExecutions.map((execution, index) => (
+            <span
+              key={`${execution.toolCallId || execution.toolName || 'tool'}-${index}`}
+              className={execution.success === false ? 'failed' : execution.requiresConfirmation ? 'sensitive' : ''}
+            >
+              {formatToolLabel(execution.toolName || undefined)} · {formatToolExecutionStatus(execution)}
+            </span>
+          ))}
+        </div>
+      )}
       {trace.usage && (
         <div className="trace-usage">
           <span>Entrada: {formatNumber(trace.usage.inputTokens)}</span>
@@ -443,6 +510,8 @@ function formatToolLabel(toolName?: string) {
     get_temperature_requirements: 'Validación de temperatura',
     register_customer: 'Registro de cliente',
     search_customer: 'Búsqueda de cliente',
+    update_awb_status: 'Actualización de AWB',
+    cancel_awb: 'Cancelación de AWB',
     simulate_email: 'Simulación de email'
   };
 
@@ -469,9 +538,20 @@ function normalizeTrace(trace: ChatTrace): ChatTrace {
   return {
     ...trace,
     tools: trace.tools || [],
+    toolExecutions: trace.toolExecutions || [],
     skills: trace.skills || [],
     subagents: trace.subagents || [],
+    routing: normalizeRouting(trace.routing),
     usage: trace.usage || null
+  };
+}
+
+function normalizeRouting(routing?: ChatRoutingTrace | null): ChatRoutingTrace | null {
+  if (!routing) return null;
+
+  return {
+    ...routing,
+    candidates: routing.candidates || []
   };
 }
 
@@ -487,6 +567,33 @@ function formatTokenSummary(usage?: ChatUsageTrace | null) {
     return `${Math.round((usage.inputTokens || 0) + (usage.outputTokens || 0))} tokens`;
   }
   return 'No disponible';
+}
+
+function formatToolExecutionSummary(executions?: ChatToolExecutionTrace[]) {
+  if (!executions || executions.length === 0) return 'Ninguna';
+
+  const failed = executions.filter(execution => execution.success === false).length;
+  const sensitive = executions.filter(execution => execution.requiresConfirmation).length;
+
+  if (failed > 0) return `${executions.length} total, ${failed} con incidencia`;
+  if (sensitive > 0) return `${executions.length} total, ${sensitive} sensible`;
+  return `${executions.length} total`;
+}
+
+function formatToolExecutionStatus(execution: ChatToolExecutionTrace) {
+  const status = execution.success === false
+    ? 'falló'
+    : execution.success === true
+      ? 'correcta'
+      : 'registrada';
+  const sensitivity = execution.requiresConfirmation ? 'sensible' : 'lectura';
+
+  return execution.error ? `${status}, ${sensitivity}: ${execution.error}` : `${status}, ${sensitivity}`;
+}
+
+function formatRoutingConfidence(routing?: ChatRoutingTrace | null) {
+  if (!routing || routing.confidence == null) return 'No disponible';
+  return `${Math.round(Math.max(0, Math.min(1, routing.confidence)) * 100)}%`;
 }
 
 function formatContextUsage(usage: ChatUsageTrace) {

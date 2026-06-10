@@ -387,6 +387,107 @@ main {
   font-size: 0.84rem;
 }
 
+.trace-routing {
+  margin: 0 0.85rem 0.85rem;
+  padding: 0.75rem;
+  border-radius: 14px;
+  border: 1px solid rgba(124, 230, 255, 0.14);
+  background: linear-gradient(180deg, rgba(124, 230, 255, 0.07), rgba(124, 140, 255, 0.04));
+}
+
+.trace-routing-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.trace-routing-heading span {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.trace-routing-heading strong {
+  color: var(--accent);
+  font-size: 0.86rem;
+}
+
+.trace-routing p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.trace-routing-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}
+
+.trace-routing-meta span {
+  padding: 0.32rem 0.52rem;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 230, 255, 0.14);
+  color: var(--text-muted);
+  background: rgba(124, 230, 255, 0.08);
+  font-size: 0.7rem;
+}
+
+.trace-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}
+
+.trace-candidates span {
+  padding: 0.32rem 0.52rem;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 162, 196, 0.12);
+  color: var(--text-muted);
+  background: rgba(6, 16, 29, 0.5);
+  font-size: 0.7rem;
+}
+
+.trace-candidates span.selected {
+  color: #03111d;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent) 0%, #c2f3ff 100%);
+}
+
+.trace-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0 0.85rem 0.85rem;
+}
+
+.trace-tools span {
+  padding: 0.35rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 162, 196, 0.12);
+  background: rgba(6, 16, 29, 0.5);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.trace-tools span.sensitive {
+  border-color: rgba(124, 230, 255, 0.18);
+  background: rgba(124, 230, 255, 0.08);
+  color: var(--text-soft);
+}
+
+.trace-tools span.failed {
+  border-color: rgba(251, 113, 133, 0.26);
+  background: rgba(251, 113, 133, 0.1);
+  color: #fecdd3;
+}
+
 .trace-usage {
   display: flex;
   flex-wrap: wrap;

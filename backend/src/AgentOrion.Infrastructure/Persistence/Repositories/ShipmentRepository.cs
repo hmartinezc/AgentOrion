@@ -7,12 +7,12 @@ namespace AgentOrion.Infrastructure.Persistence.Repositories;
 
 public class ShipmentRepository : IShipmentRepository
 {
-    private readonly TursoContext _context;
-    public ShipmentRepository(TursoContext context) => _context = context;
+    private readonly IAgentOrionDbConnectionFactory _connectionFactory;
+    public ShipmentRepository(IAgentOrionDbConnectionFactory connectionFactory) => _connectionFactory = connectionFactory;
 
     public async Task<int> CreateAsync(Shipment shipment)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
             INSERT INTO Shipments (AwbNumber, CustomerId, ProductType, ProductName, QuantityKg, TemperatureRequiredC,
@@ -24,9 +24,48 @@ public class ShipmentRepository : IShipmentRepository
         return Convert.ToInt32(result);
     }
 
+    public async Task<int> CreateWithEventAsync(Shipment shipment, string eventType, string eventData)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            using var insertShipment = connection.CreateCommand();
+            insertShipment.Transaction = transaction;
+            insertShipment.CommandText = @"
+                INSERT INTO Shipments (AwbNumber, CustomerId, ProductType, ProductName, QuantityKg, TemperatureRequiredC,
+                    OriginAirport, DestinationAirport, FlightDate, Status, PhytosanitaryCert, CreatedAt)
+                VALUES (@awb, @custId, @prodType, @prodName, @qty, @temp, @origin, @dest, @flight, @status, @phyto, @createdAt);
+                SELECT last_insert_rowid();";
+            AddShipmentParams(insertShipment, shipment);
+            var result = await insertShipment.ExecuteScalarAsync();
+            var shipmentId = Convert.ToInt32(result);
+
+            using var insertEvent = connection.CreateCommand();
+            insertEvent.Transaction = transaction;
+            insertEvent.CommandText = @"
+                INSERT INTO ShipmentEvents (ShipmentId, EventType, EventData, RecordedAt)
+                VALUES (@shipId, @type, @data, @recordedAt);";
+            insertEvent.Parameters.AddWithValue("@shipId", shipmentId);
+            insertEvent.Parameters.AddWithValue("@type", eventType);
+            insertEvent.Parameters.AddWithValue("@data", eventData);
+            insertEvent.Parameters.AddWithValue("@recordedAt", DateTime.UtcNow.ToString("O"));
+            await insertEvent.ExecuteNonQueryAsync();
+
+            transaction.Commit();
+            return shipmentId;
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
     public async Task<Shipment?> GetByAwbAsync(string awbNumber)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT * FROM Shipments WHERE AwbNumber = @awb;";
         cmd.Parameters.AddWithValue("@awb", awbNumber);
@@ -37,7 +76,7 @@ public class ShipmentRepository : IShipmentRepository
 
     public async Task<Shipment?> GetByIdAsync(int id)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT * FROM Shipments WHERE Id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
@@ -49,9 +88,21 @@ public class ShipmentRepository : IShipmentRepository
     public async Task<IEnumerable<Shipment>> GetAllAsync()
     {
         var list = new List<Shipment>();
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT * FROM Shipments ORDER BY CreatedAt DESC;";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) list.Add(Map(reader));
+        return list;
+    }
+
+    public async Task<IEnumerable<Shipment>> GetRecentAsync(int limit)
+    {
+        var list = new List<Shipment>();
+        using var connection = _connectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT * FROM Shipments ORDER BY CreatedAt DESC LIMIT @limit;";
+        cmd.Parameters.AddWithValue("@limit", Math.Clamp(limit, 1, 100));
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync()) list.Add(Map(reader));
         return list;
@@ -60,7 +111,7 @@ public class ShipmentRepository : IShipmentRepository
     public async Task<IEnumerable<Shipment>> GetByCustomerAsync(int customerId)
     {
         var list = new List<Shipment>();
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT * FROM Shipments WHERE CustomerId = @custId ORDER BY CreatedAt DESC;";
         cmd.Parameters.AddWithValue("@custId", customerId);
@@ -71,7 +122,7 @@ public class ShipmentRepository : IShipmentRepository
 
     public async Task UpdateStatusAsync(int id, string status)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "UPDATE Shipments SET Status = @status WHERE Id = @id;";
         cmd.Parameters.AddWithValue("@status", status);
@@ -81,7 +132,7 @@ public class ShipmentRepository : IShipmentRepository
 
     public async Task AddEventAsync(int shipmentId, string eventType, string eventData)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
             INSERT INTO ShipmentEvents (ShipmentId, EventType, EventData, RecordedAt)

@@ -3,8 +3,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AgentOrion.Core.Models;
+using AgentOrion.Core.Operations;
 using AgentOrion.Core.Persistence;
-using AgentOrion.Infrastructure.Tools;
 
 namespace AgentOrion.Infrastructure.Copilot;
 
@@ -29,7 +29,7 @@ public static class DeterministicTurnHandler
         ConversationMemoryState? memory,
         ConversationMemoryService memoryService,
         ICustomerRepository customers,
-        IShipmentRepository shipments,
+        IAwbReservationGateway awbReservations,
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -72,7 +72,7 @@ public static class DeterministicTurnHandler
             if (contextCustomer is not null)
             {
                 return contextShipment.IsComplete
-                    ? await CreateReservationAsync(contextCustomer, contextShipment, memory, memoryService, shipments, includeSearchTool: false)
+                    ? await CreateReservationAsync(contextCustomer, contextShipment, memory, memoryService, awbReservations, includeSearchTool: false, ct)
                     : new DeterministicTurnResult
                     {
                         RouteName = "awb-dispatch",
@@ -127,7 +127,7 @@ public static class DeterministicTurnHandler
             };
         }
 
-        return await CreateReservationAsync(customer, shipment, memory, memoryService, shipments);
+        return await CreateReservationAsync(customer, shipment, memory, memoryService, awbReservations, includeSearchTool: true, ct);
     }
 
     private static async Task<DeterministicTurnResult> CreateReservationAsync(
@@ -135,20 +135,39 @@ public static class DeterministicTurnHandler
         ShipmentDraft shipment,
         ConversationMemoryState? memory,
         ConversationMemoryService memoryService,
-        IShipmentRepository shipments,
-        bool includeSearchTool = true)
+        IAwbReservationGateway awbReservations,
+        bool includeSearchTool,
+        CancellationToken ct)
     {
-        var awbService = new AwbToolService(shipments);
         int? customerId = customer.Id > 0 ? customer.Id : null;
-        var createResult = await awbService.CreateAwbAsync(
+        var createResult = await awbReservations.CreateReservationAsync(new AwbReservationCreateRequest(
             shipment.ProductType!,
             shipment.ProductName!,
             shipment.QuantityKg!.Value,
             shipment.OriginAirport!,
             shipment.DestinationAirport!,
             customerId,
-            shipment.FlightDate);
-        var createPayload = JsonSerializer.Serialize(createResult, JsonOptions);
+            shipment.FlightDate), ct);
+
+        if (!createResult.Success || createResult.Reservation is null)
+        {
+            return new DeterministicTurnResult
+            {
+                RouteName = "awb-dispatch",
+                RouteDisplayName = "Despacho AWB",
+                Tools = includeSearchTool ? ["search_customer", "create_awb"] : ["create_awb"],
+                Content = createResult.ErrorMessage ?? "No se pudo crear la reserva AWB."
+            };
+        }
+
+        var reservation = createResult.Reservation;
+        var createPayload = JsonSerializer.Serialize(new
+        {
+            awbNumber = reservation.AwbNumber,
+            status = reservation.Status,
+            flightDate = reservation.FlightDate?.ToString("yyyy-MM-dd"),
+            temperatureRequiredC = reservation.TemperatureRequiredC
+        }, JsonOptions);
 
         if (memory is not null)
         {
@@ -164,10 +183,8 @@ public static class DeterministicTurnHandler
             }
         }
 
-        using var document = JsonDocument.Parse(createPayload);
-        var root = document.RootElement;
-        var awbNumber = root.TryGetProperty("awbNumber", out var awb) ? awb.GetString() : "n/d";
-        var temperature = root.TryGetProperty("temperatureRequiredC", out var temp) ? temp.GetDouble().ToString("0.#", CultureInfo.InvariantCulture) : "n/d";
+        var awbNumber = reservation.AwbNumber ?? "n/d";
+        var temperature = reservation.TemperatureRequiredC?.ToString("0.#", CultureInfo.InvariantCulture) ?? "n/d";
 
         return new DeterministicTurnResult
         {

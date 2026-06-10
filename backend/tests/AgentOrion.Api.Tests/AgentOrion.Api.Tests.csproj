@@ -21,4 +21,8 @@
     <ProjectReference Include="..\..\src\AgentOrion.Infrastructure\AgentOrion.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\AgentOrion.Core\AgentOrion.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="routing-evaluation-cases.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

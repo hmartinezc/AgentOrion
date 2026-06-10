@@ -1,3 +1,4 @@
+using GitHub.Copilot.SDK;
 using Microsoft.Extensions.AI;
 
 namespace AgentOrion.Infrastructure.Copilot;
@@ -9,4 +10,6 @@ public sealed class AgentSessionProfile
     public required string SpecialistPrompt { get; init; }
     public required IReadOnlyList<string> SkillNames { get; init; }
     public required IReadOnlyList<AIFunction> Tools { get; init; }
+    public string? Model { get; init; }
+    public ProviderConfig? Provider { get; init; }
 }

@@ -7,12 +7,12 @@ namespace AgentOrion.Infrastructure.Persistence.Repositories;
 
 public class CustomerRepository : ICustomerRepository
 {
-    private readonly TursoContext _context;
-    public CustomerRepository(TursoContext context) => _context = context;
+    private readonly IAgentOrionDbConnectionFactory _connectionFactory;
+    public CustomerRepository(IAgentOrionDbConnectionFactory connectionFactory) => _connectionFactory = connectionFactory;
 
     public async Task<int> CreateAsync(Customer customer)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
             INSERT INTO Customers (FullName, Email, Phone, CompanyName, Country, CreatedAt, Address, DocumentNumber)
@@ -32,7 +32,7 @@ public class CustomerRepository : ICustomerRepository
 
     public async Task<Customer?> GetByIdAsync(int id)
     {
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT * FROM Customers WHERE Id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
@@ -45,9 +45,22 @@ public class CustomerRepository : ICustomerRepository
     public async Task<IEnumerable<Customer>> GetAllAsync()
     {
         var list = new List<Customer>();
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT * FROM Customers ORDER BY CreatedAt DESC;";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            list.Add(Map(reader));
+        return list;
+    }
+
+    public async Task<IEnumerable<Customer>> GetRecentAsync(int limit)
+    {
+        var list = new List<Customer>();
+        using var connection = _connectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT * FROM Customers ORDER BY CreatedAt DESC LIMIT @limit;";
+        cmd.Parameters.AddWithValue("@limit", Math.Clamp(limit, 1, 100));
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
             list.Add(Map(reader));
@@ -57,7 +70,7 @@ public class CustomerRepository : ICustomerRepository
     public async Task<IEnumerable<Customer>> SearchAsync(string query)
     {
         var list = new List<Customer>();
-        using var connection = _context.CreateConnection();
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
             SELECT * FROM Customers 

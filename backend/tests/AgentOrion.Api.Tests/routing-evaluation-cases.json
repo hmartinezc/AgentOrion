@@ -1,0 +1,44 @@
+[
+  {
+    "name": "awb_reservation",
+    "prompt": "crear reserva AWB para flores",
+    "expectedRouteName": "awb-dispatch",
+    "minimumConfidence": 0.85
+  },
+  {
+    "name": "cold_chain_validation",
+    "prompt": "validar temperatura para flores",
+    "expectedRouteName": "cold-chain",
+    "minimumConfidence": 0.85
+  },
+  {
+    "name": "mixed_awb_cold_chain_client_alert",
+    "prompt": "notificar al cliente una alerta de temperatura del AWB",
+    "expectedRouteName": "mixed-operations",
+    "minimumConfidence": 0.7
+  },
+  {
+    "name": "customer_registration",
+    "prompt": "registrar cliente nuevo empresa JAF Flower email ops@example.com",
+    "expectedRouteName": "client-comm",
+    "minimumConfidence": 0.9
+  },
+  {
+    "name": "awb_status_lookup",
+    "prompt": "consultar estado del AWB 123456789",
+    "expectedRouteName": "awb-dispatch",
+    "minimumConfidence": 0.85
+  },
+  {
+    "name": "mixed_email_awb_booking",
+    "prompt": "enviar correo al cliente del AWB cuando se confirme la reserva",
+    "expectedRouteName": "mixed-operations",
+    "minimumConfidence": 0.7
+  },
+  {
+    "name": "general_greeting",
+    "prompt": "hola",
+    "expectedRouteName": "operations-general",
+    "minimumConfidence": 0.3
+  }
+]

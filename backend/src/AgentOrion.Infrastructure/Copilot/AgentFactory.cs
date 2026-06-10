@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using GitHub.Copilot.SDK;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -10,12 +9,14 @@ public sealed class AgentSessionHandle
 {
     public CopilotSession Session { get; }
     public AgentSessionProfile Profile { get; }
+    public RoutingTrace RoutingTrace { get; }
     public bool IsTransient { get; }
 
-    public AgentSessionHandle(CopilotSession session, AgentSessionProfile profile, bool isTransient)
+    public AgentSessionHandle(CopilotSession session, AgentSessionProfile profile, RoutingTrace routingTrace, bool isTransient)
     {
         Session = session;
         Profile = profile;
+        RoutingTrace = routingTrace;
         IsTransient = isTransient;
     }
 }
@@ -25,19 +26,22 @@ public sealed class AgentFactory : IAsyncDisposable
     private static readonly TimeSpan SessionIdleTtl = TimeSpan.FromMinutes(20);
     private readonly AgentOrionOptions _options;
     private readonly AgentRequestRouter _router;
-    private readonly string _contentRootPath;
-    private readonly IReadOnlyDictionary<string, string> _skillPathByName;
-    private readonly ConcurrentDictionary<string, SessionEntry> _activeSessions = new();
+    private readonly SkillRegistry _skillRegistry;
+    private readonly AgentSessionManager _sessions;
     private readonly SemaphoreSlim _clientLock = new(1, 1);
     private CopilotClient? _client;
     private bool _disposed;
 
-    public AgentFactory(IOptions<AgentOrionOptions> options, AgentRequestRouter router, string contentRootPath)
+    public AgentFactory(
+        IOptions<AgentOrionOptions> options,
+        AgentRequestRouter router,
+        SkillRegistry skillRegistry,
+        AgentSessionManager sessions)
     {
         _options = options.Value;
         _router = router;
-        _contentRootPath = contentRootPath;
-        _skillPathByName = BuildSkillPathIndex();
+        _skillRegistry = skillRegistry;
+        _sessions = sessions;
     }
 
     public async Task<AgentSessionHandle> GetOrCreateSessionAsync(
@@ -58,22 +62,20 @@ public sealed class AgentFactory : IAsyncDisposable
             .Where(tool => !string.IsNullOrWhiteSpace(tool.Name))
             .ToDictionary(tool => tool.Name, StringComparer.OrdinalIgnoreCase);
 
-        var desiredProfile = _router.SelectProfile(
+        var routingDecision = _router.SelectProfileWithTrace(
             prompt,
             toolCatalog,
-            fallbackRouteName ?? (_activeSessions.TryGetValue(sessionId, out var existingSession) ? existingSession.Profile.RouteName : null));
+            fallbackRouteName ?? _sessions.GetStableRouteName(sessionId));
+        var desiredProfile = routingDecision.Profile;
 
-        if (normalizedMode == ChatModes.Memory && _activeSessions.TryGetValue(sessionId, out var activeSession))
+        if (normalizedMode == ChatModes.Memory && _sessions.TryGetReusable(sessionId, desiredProfile.RouteName, out var reusableSession))
         {
-            if (string.Equals(activeSession.Profile.RouteName, desiredProfile.RouteName, StringComparison.OrdinalIgnoreCase))
-            {
-                activeSession.Touch();
-                return new AgentSessionHandle(activeSession.Session, activeSession.Profile, isTransient: false);
-            }
+            return new AgentSessionHandle(reusableSession.Session, reusableSession.Profile, routingDecision.Trace, isTransient: false);
+        }
 
-            _activeSessions.TryRemove(sessionId, out _);
-            await activeSession.Session.DisposeAsync();
-
+        if (normalizedMode == ChatModes.Memory && _sessions.TryRemove(sessionId, out var routeChangedSession))
+        {
+            await routeChangedSession.Session.DisposeAsync();
             try
             {
                 await client.DeleteSessionAsync(sessionId, ct);
@@ -84,12 +86,12 @@ public sealed class AgentFactory : IAsyncDisposable
             }
         }
 
-        return await CreateSpecialistSessionAsync(client, sessionId, normalizedMode, desiredProfile, memoryContextAppendix, ct);
+        return await CreateSpecialistSessionAsync(client, sessionId, normalizedMode, desiredProfile, routingDecision.Trace, memoryContextAppendix, ct);
     }
 
     public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
     {
-        if (_activeSessions.TryRemove(sessionId, out var activeSession))
+        if (_sessions.TryRemove(sessionId, out var activeSession))
         {
             await activeSession.Session.DisposeAsync();
         }
@@ -118,21 +120,14 @@ public sealed class AgentFactory : IAsyncDisposable
         string sessionId,
         string mode,
         AgentSessionProfile profile,
+        RoutingTrace routingTrace,
         string? memoryContextAppendix,
         CancellationToken ct)
     {
-        var skillDirs = profile.SkillNames
-            .Select(skillName => _skillPathByName.TryGetValue(skillName, out var path) ? path : null)
-            .OfType<string>()
-            .ToList();
+        var skillDirs = _skillRegistry.ResolveDirectories(profile.SkillNames).ToList();
 
-        var provider = new ProviderConfig
-        {
-            Type = _options.Copilot.Provider.Type,
-            BaseUrl = _options.Copilot.Provider.BaseUrl,
-            ApiKey = _options.Copilot.Provider.ApiKey,
-            WireApi = _options.Copilot.Provider.WireApi
-        };
+        var provider = BuildEffectiveProvider(profile.Provider, _options.Copilot.Provider);
+        var model = ResolveModel(profile.Model, _options.Copilot.Model);
 
         var effectiveSessionId = mode == ChatModes.Fast
             ? $"{sessionId}-fast-{Guid.NewGuid():N}"[..Math.Min(sessionId.Length + 18, 64)]
@@ -141,7 +136,7 @@ public sealed class AgentFactory : IAsyncDisposable
         var session = await client.CreateSessionAsync(new SessionConfig
         {
             SessionId = effectiveSessionId,
-            Model = _options.Copilot.Model,
+            Model = model,
             Provider = provider,
             Streaming = true,
             SkillDirectories = skillDirs,
@@ -160,29 +155,17 @@ public sealed class AgentFactory : IAsyncDisposable
 
         if (mode == ChatModes.Memory)
         {
-            _activeSessions[sessionId] = new SessionEntry(session, profile);
+            _sessions.Track(sessionId, session, profile);
         }
 
-        return new AgentSessionHandle(session, profile, isTransient: mode == ChatModes.Fast);
+        return new AgentSessionHandle(session, profile, routingTrace, isTransient: mode == ChatModes.Fast);
     }
 
     private async Task CleanupExpiredSessionsAsync(CopilotClient client, CancellationToken ct)
     {
-        var now = DateTimeOffset.UtcNow;
-
-        foreach (var pair in _activeSessions.ToArray())
+        foreach (var pair in _sessions.RemoveExpired(SessionIdleTtl))
         {
-            if (now - pair.Value.LastUsedAt <= SessionIdleTtl)
-            {
-                continue;
-            }
-
-            if (!_activeSessions.TryRemove(pair.Key, out var expired))
-            {
-                continue;
-            }
-
-            try { await expired.Session.DisposeAsync(); } catch { }
+            try { await pair.Value.Session.DisposeAsync(); } catch { }
             try { await client.DeleteSessionAsync(pair.Key, ct); } catch { }
         }
     }
@@ -225,7 +208,7 @@ public sealed class AgentFactory : IAsyncDisposable
 
         if (_client is not null)
         {
-            foreach (var activeSession in _activeSessions.Values)
+            foreach (var activeSession in _sessions.Snapshot())
             {
                 try { await activeSession.Session.DisposeAsync(); } catch { }
             }
@@ -235,34 +218,26 @@ public sealed class AgentFactory : IAsyncDisposable
         }
 
         _clientLock.Dispose();
-        _activeSessions.Clear();
+        _sessions.Clear();
     }
 
-    private IReadOnlyDictionary<string, string> BuildSkillPathIndex()
+    private static ProviderConfig BuildEffectiveProvider(ProviderConfig? routeProvider, ProviderOptions globalProvider)
     {
-        return _options.SkillDirectories
-            .Select(path => Path.GetFullPath(path, _contentRootPath))
-            .Where(Directory.Exists)
-            .SelectMany(root => Directory.GetDirectories(root))
-            .ToDictionary(
-                path => Path.GetFileName(path),
-                path => path,
-                StringComparer.OrdinalIgnoreCase);
-    }
-
-    private sealed class SessionEntry
-    {
-        public SessionEntry(CopilotSession session, AgentSessionProfile profile)
+        return new ProviderConfig
         {
-            Session = session;
-            Profile = profile;
-            LastUsedAt = DateTimeOffset.UtcNow;
-        }
-
-        public CopilotSession Session { get; }
-        public AgentSessionProfile Profile { get; }
-        public DateTimeOffset LastUsedAt { get; private set; }
-
-        public void Touch() => LastUsedAt = DateTimeOffset.UtcNow;
+            Type = Select(routeProvider?.Type, globalProvider.Type),
+            BaseUrl = Select(routeProvider?.BaseUrl, globalProvider.BaseUrl),
+            ApiKey = SelectNullable(routeProvider?.ApiKey, globalProvider.ApiKey),
+            WireApi = Select(routeProvider?.WireApi, globalProvider.WireApi)
+        };
     }
+
+    private static string ResolveModel(string? routeModel, string globalModel) => Select(routeModel, globalModel);
+
+    private static string Select(string? preferred, string fallback) =>
+        !string.IsNullOrWhiteSpace(preferred) ? preferred : fallback;
+
+    private static string? SelectNullable(string? preferred, string? fallback) =>
+        !string.IsNullOrWhiteSpace(preferred) ? preferred : fallback;
+
 }

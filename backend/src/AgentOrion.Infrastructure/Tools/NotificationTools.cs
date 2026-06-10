@@ -1,18 +1,20 @@
 using Microsoft.Extensions.AI;
 using System.ComponentModel;
 using System.Reflection;
-using AgentOrion.Infrastructure.Persistence;
-using Microsoft.Data.Sqlite;
+using AgentOrion.Core.Models;
+using AgentOrion.Core.Persistence;
 
 namespace AgentOrion.Infrastructure.Tools;
 
 public class NotificationToolService
 {
-    private readonly TursoContext _context;
+    private readonly ISimulatedEmailRepository _emails;
+    private readonly IShipmentRepository _shipments;
 
-    public NotificationToolService(TursoContext context)
+    public NotificationToolService(ISimulatedEmailRepository emails, IShipmentRepository shipments)
     {
-        _context = context;
+        _emails = emails;
+        _shipments = shipments;
     }
 
     [Description("Simula el envío de una notificación por email relacionada a un AWB o cliente. Guarda el registro pero no envía email real.")]
@@ -22,30 +24,20 @@ public class NotificationToolService
         [Description("Asunto del correo")] string? subject = null,
         [Description("Cuerpo del mensaje")] string? body = null)
     {
-        using var connection = _context.CreateConnection();
         int? shipmentId = null;
         if (!string.IsNullOrWhiteSpace(awbNumber))
         {
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT Id FROM Shipments WHERE AwbNumber = @awb;";
-            cmd.Parameters.AddWithValue("@awb", awbNumber);
-            var result = await cmd.ExecuteScalarAsync();
-            if (result != null) shipmentId = Convert.ToInt32(result);
+            shipmentId = (await _shipments.GetByAwbAsync(awbNumber))?.Id;
         }
 
-        using var insert = connection.CreateCommand();
-        insert.CommandText = @"
-            INSERT INTO SimulatedEmails (ShipmentId, RecipientEmail, Subject, Body, SentAt, Status)
-            VALUES (@shipId, @email, @subject, @body, @sentAt, @status);
-            SELECT last_insert_rowid();";
-        insert.Parameters.AddWithValue("@shipId", shipmentId ?? (object)DBNull.Value);
-        insert.Parameters.AddWithValue("@email", recipientEmail ?? (object)DBNull.Value);
-        insert.Parameters.AddWithValue("@subject", subject ?? (object)DBNull.Value);
-        insert.Parameters.AddWithValue("@body", body ?? (object)DBNull.Value);
-        insert.Parameters.AddWithValue("@sentAt", DateTime.UtcNow.ToString("O"));
-        insert.Parameters.AddWithValue("@status", "simulated");
-        var idObj = await insert.ExecuteScalarAsync();
-        var id = Convert.ToInt32(idObj);
+        var id = await _emails.CreateAsync(new SimulatedEmail
+        {
+            ShipmentId = shipmentId,
+            RecipientEmail = recipientEmail,
+            Subject = subject,
+            Body = body,
+            Status = "simulated"
+        });
 
         return new
         {
@@ -59,9 +51,9 @@ public class NotificationToolService
 
 public static class NotificationTools
 {
-    public static AIFunction CreateSimulateEmailTool(TursoContext context)
+    public static AIFunction CreateSimulateEmailTool(ISimulatedEmailRepository emails, IShipmentRepository shipments)
     {
-        var service = new NotificationToolService(context);
+        var service = new NotificationToolService(emails, shipments);
         var method = typeof(NotificationToolService).GetMethod(nameof(NotificationToolService.SimulateEmailAsync))!;
         return AIFunctionFactory.Create(method, service, "simulate_email", "Simula el envío de un email de notificación.");
     }

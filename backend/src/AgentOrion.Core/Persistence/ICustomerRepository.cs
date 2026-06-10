@@ -7,5 +7,6 @@ public interface ICustomerRepository
     Task<int> CreateAsync(Customer customer);
     Task<Customer?> GetByIdAsync(int id);
     Task<IEnumerable<Customer>> GetAllAsync();
+    Task<IEnumerable<Customer>> GetRecentAsync(int limit);
     Task<IEnumerable<Customer>> SearchAsync(string query);
 }

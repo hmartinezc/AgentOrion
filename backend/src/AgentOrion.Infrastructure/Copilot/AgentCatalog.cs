@@ -27,6 +27,16 @@ public sealed class AgentRouteDefinition
     public IReadOnlyList<string> ToolNames { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Keywords { get; init; } = Array.Empty<string>();
     public bool IncludeInSpecialistMatching { get; init; } = true;
+    public string? Model { get; init; }
+    public RouteProviderDefinition? Provider { get; init; }
+}
+
+public sealed class RouteProviderDefinition
+{
+    public string? Type { get; init; }
+    public string? BaseUrl { get; init; }
+    public string? ApiKey { get; init; }
+    public string? WireApi { get; init; }
 }
 
 public sealed class AgentCatalogProvider
@@ -65,6 +75,13 @@ public sealed class AgentCatalogProvider
 
     private static void Validate(AgentCatalog catalog, string catalogPath)
     {
+        if (string.IsNullOrWhiteSpace(catalog.DefaultRoute))
+        {
+            throw new InvalidOperationException($"Agent catalog default route is empty: {catalogPath}");
+        }
+
+        ValidateMixedRoute(catalog.MixedRoute, catalogPath);
+
         if (catalog.Routes.Count == 0)
         {
             throw new InvalidOperationException($"Agent catalog has no routes: {catalogPath}");
@@ -78,6 +95,16 @@ public sealed class AgentCatalogProvider
                 throw new InvalidOperationException($"Agent catalog contains a route without name: {catalogPath}");
             }
 
+            if (string.IsNullOrWhiteSpace(route.DisplayName))
+            {
+                throw new InvalidOperationException($"Agent catalog route '{route.Name}' has an empty display name: {catalogPath}");
+            }
+
+            if (string.IsNullOrWhiteSpace(route.SpecialistPrompt))
+            {
+                throw new InvalidOperationException($"Agent catalog route '{route.Name}' has an empty specialist prompt: {catalogPath}");
+            }
+
             if (!names.Add(route.Name))
             {
                 throw new InvalidOperationException($"Agent catalog contains duplicate route '{route.Name}': {catalogPath}");
@@ -87,6 +114,24 @@ public sealed class AgentCatalogProvider
         if (!names.Contains(catalog.DefaultRoute))
         {
             throw new InvalidOperationException($"Agent catalog default route '{catalog.DefaultRoute}' does not exist: {catalogPath}");
+        }
+    }
+
+    private static void ValidateMixedRoute(MixedRouteDefinition mixedRoute, string catalogPath)
+    {
+        if (string.IsNullOrWhiteSpace(mixedRoute.Name))
+        {
+            throw new InvalidOperationException($"Agent catalog mixed route has an empty name: {catalogPath}");
+        }
+
+        if (string.IsNullOrWhiteSpace(mixedRoute.DisplayName))
+        {
+            throw new InvalidOperationException($"Agent catalog mixed route has an empty display name: {catalogPath}");
+        }
+
+        if (string.IsNullOrWhiteSpace(mixedRoute.SpecialistPrompt))
+        {
+            throw new InvalidOperationException($"Agent catalog mixed route has an empty specialist prompt: {catalogPath}");
         }
     }
 }

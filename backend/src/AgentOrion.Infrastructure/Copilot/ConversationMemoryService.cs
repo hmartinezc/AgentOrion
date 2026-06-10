@@ -118,6 +118,12 @@ public sealed class ConversationMemoryService
                     if (root.TryGetProperty("Status", out var awbStatus)) memory.Shipment.Status = awbStatus.GetString() ?? memory.Shipment.Status;
                     break;
 
+                case "update_awb_status":
+                case "cancel_awb":
+                    if (TryGetString(root, "AwbNumber", "awbNumber") is { } updatedAwb) memory.Shipment.AwbNumber = updatedAwb;
+                    if (TryGetString(root, "Status", "status") is { } updatedStatus) memory.Shipment.Status = updatedStatus;
+                    break;
+
                 case "get_temperature_requirements":
                     if (root.TryGetProperty("temperatureC", out var reqTemp) && reqTemp.ValueKind == JsonValueKind.Number) memory.Shipment.TemperatureRequiredC = reqTemp.GetDouble();
                     break;
@@ -185,6 +191,19 @@ public sealed class ConversationMemoryService
     {
         var match = regex.Match(text);
         return match.Success ? match.Value.Trim() : null;
+    }
+
+    private static string? TryGetString(JsonElement root, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (root.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String)
+            {
+                return value.GetString();
+            }
+        }
+
+        return null;
     }
 
     private static DateTime? ParseDate(string text)
